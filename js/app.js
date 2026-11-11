@@ -144,6 +144,29 @@
   }
   function photoUrl(path) { return sb.storage.from('profile-photos').getPublicUrl(path).data.publicUrl; }
 
+  var zoomReady = false;
+  function enablePhotoZoom() {
+    if (zoomReady) return;
+    zoomReady = true;
+    var st = document.createElement('style');
+    st.textContent = '.photo-zoom{position:fixed;inset:0;z-index:100;background:#000d;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px;cursor:zoom-out}' +
+      '.photo-zoom img{max-width:min(92vw,560px);max-height:78vh;border-radius:16px;border:2px solid var(--cyan);object-fit:contain;background:#081626}' +
+      '.photo-zoom span{color:#fff;font-weight:700;text-align:center}.photo-zoom small{color:#cfe}';
+    document.head.appendChild(st);
+    function close() { var o = document.querySelector('.photo-zoom'); if (o) o.remove(); }
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+    document.addEventListener('click', function (e) {
+      if (e.target.closest('.photo-zoom')) { close(); return; }
+      var im = e.target.closest('img[data-zoom]');
+      if (!im) return;
+      close();
+      var o = document.createElement('div');
+      o.className = 'photo-zoom';
+      o.innerHTML = '<img alt="" src="' + esc(im.dataset.zoom) + '"><span>' + esc(im.dataset.caption || '') + '</span><small>Toca para cerrar</small>';
+      document.body.appendChild(o);
+    });
+  }
+
   /* ---------- helpers de servicios ---------- */
   function place(t) {
     var m = /(-?\d{1,3}\.\d+),\s*(-?\d{1,3}\.\d+)/.exec(t || '');
@@ -378,12 +401,13 @@
       }, { enableHighAccuracy: true, timeout: 10000 });
     });
 
+    enablePhotoZoom();
     var box = $('#myServices'), lastSig = '';
     function offersHtml(list) {
       if (!list.length) return '<div class="details"><small class="muted">Aún no hay ofertas. Los transportistas pueden aceptar tu precio u ofertar otro. Se actualiza solo.</small></div>';
       return '<div class="details"><b>Ofertas recibidas (' + list.length + ')</b>' + list.map(function (o, i) {
         return '<div class="row" style="margin-top:10px;flex-wrap:wrap"><div style="display:flex;gap:10px;align-items:center">' +
-          (o.photo_path ? '<img alt="" src="' + esc(photoUrl(o.photo_path)) + '" style="width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid var(--cyan)">' : '') +
+          (o.photo_path ? '<img alt="Foto de ' + esc(o.transporter_name) + '" title="Toca para ver la foto" data-zoom="' + esc(photoUrl(o.photo_path)) + '" data-caption="' + esc(o.transporter_name) + '" src="' + esc(photoUrl(o.photo_path)) + '" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid var(--cyan);cursor:zoom-in">' : '') +
           '<div><b>' + esc(o.transporter_name) + '</b>' + (i === 0 && list.length > 1 ? ' <span class="badge">Mejor precio</span>' : '') +
           '<br><small class="muted">' + esc(o.motorcycle || '') + ' · ' + esc(o.color || '') + '</small></div></div>' +
           '<div style="display:flex;gap:10px;align-items:center"><strong style="font-size:1.3rem;color:var(--cyan)">' + money(o.price) +
@@ -465,21 +489,53 @@
 
     var tp = await sb.from('transporter_profiles').select('*').eq('user_id', uid).maybeSingle();
     var t = tp.data;
-    if (t && t.photo_path) {
-      $('#welcome').insertAdjacentHTML('beforebegin', '<img class="avatar" alt="Tu foto" src="' + esc(photoUrl(t.photo_path)) + '">');
-    } else if (t) {
+    enablePhotoZoom();
+    var avatar = null;
+    function setAvatar(path) {
+      var url = photoUrl(path);
+      if (!avatar) {
+        $('#welcome').insertAdjacentHTML('beforebegin', '<img class="avatar" id="myAvatar" alt="Tu foto" title="Toca para ver tu foto" style="width:100px;height:100px;object-fit:cover;cursor:zoom-in">');
+        avatar = $('#myAvatar');
+      }
+      avatar.src = url;
+      avatar.dataset.zoom = url;
+      avatar.dataset.caption = 'Tu foto de perfil';
+    }
+    if (t && t.photo_path) setAvatar(t.photo_path);
+    if (t) {
       var pc = document.createElement('section');
       pc.className = 'card';
-      pc.innerHTML = '<h2>Foto de perfil</h2><p class="muted">Sube tu foto para que los clientes te reconozcan (JPG/PNG/WEBP, máx. 5 MB).</p>' +
-        '<form><input type="file" accept="image/jpeg,image/png,image/webp" required><button class="btn" type="submit">Subir foto</button></form>';
+      pc.innerHTML = '<h2>' + (t.photo_path ? 'Cambiar foto de perfil' : 'Foto de perfil') + '</h2>' +
+        '<p class="muted">' + (t.photo_path ? 'Elige una foto nueva: verás cómo queda antes de guardarla. ' : 'Sube tu foto para que los clientes te reconozcan. ') + 'JPG, PNG o WEBP, máx. 5 MB.</p>' +
+        '<form><div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">' +
+        '<img id="photoPrev" alt="Vista previa" hidden style="width:96px;height:96px;border-radius:50%;object-fit:cover;border:2px solid var(--cyan)">' +
+        '<input type="file" accept="image/jpeg,image/png,image/webp" required style="flex:1 1 220px"></div>' +
+        '<button class="btn" type="submit">Guardar foto</button></form>';
       $('main').insertBefore(pc, $('main section.card'));
-      var pf = $('form', pc);
+      var pf = $('form', pc), pin = $('input', pf), prev = $('#photoPrev', pc), prevUrl = null;
+      function clearPrev() {
+        if (prevUrl) { URL.revokeObjectURL(prevUrl); prevUrl = null; }
+        prev.hidden = true;
+        prev.removeAttribute('src');
+      }
+      pin.addEventListener('change', function () {
+        clearPrev();
+        var f = pin.files[0];
+        if (!f) return;
+        try { checkPhoto(f); } catch (err) { pin.value = ''; notice(friendly(err), true); return; }
+        prevUrl = URL.createObjectURL(f);
+        prev.src = prevUrl;
+        prev.hidden = false;
+      });
       pf.addEventListener('submit', function (e) {
         e.preventDefault();
         withBusy(pf, async function () {
-          await uploadPhoto($('input', pf).files[0], uid);
-          pc.remove();
-          notice('Foto subida correctamente.');
+          var path = await uploadPhoto(pin.files[0], uid);
+          setAvatar(path);
+          pin.value = '';
+          clearPrev();
+          $('h2', pc).textContent = 'Cambiar foto de perfil';
+          notice('Foto actualizada correctamente.');
         });
       });
     }
@@ -598,6 +654,7 @@
     if (!g) return;
     adaptNav(g.profile);
     $('#welcome').textContent = 'Panel de administración';
+    enablePhotoZoom();
 
     var view = {};
     async function load() {
@@ -672,7 +729,7 @@
             '<button class="btn danger small" data-a="revoke" data-id="' + p.id + '" data-n="' + esc(p.full_name) + '">Quitar</button>';
         }
         return '<div class="admin-row"><div class="row"><div>' +
-          (t && t.photo_path ? '<img class="avatar" alt="" src="' + esc(photoUrl(t.photo_path)) + '"><br>' : '') +
+          (t && t.photo_path ? '<img class="avatar" alt="Foto de ' + esc(p.full_name) + '" title="Toca para ver la foto" data-zoom="' + esc(photoUrl(t.photo_path)) + '" data-caption="' + esc(p.full_name) + '" src="' + esc(photoUrl(t.photo_path)) + '" style="width:56px;height:56px;cursor:zoom-in"><br>' : '') +
           '<b>' + esc(p.full_name) + '</b><small>' + esc(p.email) + ' · Cel ' + esc(p.phone) + ' · DNI ' + esc(p.dni) + ' · ' + esc(p.age) + ' años · ' + fdate(p.created_at) + '</small>' +
           (t ? '<small>Moto: ' + esc(t.motorcycle) + ' · ' + esc(t.motorcycle_color) + ' · Placa ' + esc(t.plate) + ' · ' + esc((t.service_types || []).join(', ')) + '</small>' : '') +
           '</div><span class="pill">' + (SL[p.account_status] || esc(p.account_status)) + '</span></div>' +
