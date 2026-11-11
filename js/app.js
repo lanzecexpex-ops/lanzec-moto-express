@@ -599,11 +599,12 @@
     adaptNav(g.profile);
     $('#welcome').textContent = 'Panel de administración';
 
+    var view = {};
     async function load() {
       var res = await Promise.all([
         sb.from('profiles').select('*').order('created_at', { ascending: false }).limit(1000),
         sb.from('transporter_profiles').select('*'),
-        sb.from('subscriptions').select('*').order('created_at', { ascending: false }).limit(300),
+        sb.from('subscriptions').select('*').order('created_at', { ascending: false }).limit(500),
         sb.from('services').select('*').order('created_at', { ascending: false }).limit(200),
         sb.from('complaints').select('*').order('created_at', { ascending: false }).limit(200),
         sb.from('audit_log').select('*').order('created_at', { ascending: false }).limit(100),
@@ -616,86 +617,208 @@
       var U = new Map(pr.map(function (p) { return [p.id, p]; }));
       var T = new Map(tp.map(function (t) { return [t.user_id, t]; }));
       var nm = function (id) { var u = U.get(id); return u ? esc(u.full_name) : '—'; };
+      var norm = function (x) { return String(x == null ? '' : x).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); };
+      var waLink = function (phone, label) {
+        var w = String(phone || '').replace(/\D/g, '');
+        if (w.length === 9) w = '51' + w;
+        return w ? '<a class="btn ghost small" target="_blank" rel="noopener" href="https://wa.me/' + w + '">' + (label || 'WhatsApp') + '</a>' : '';
+      };
       var SL = { pending: 'Pendiente', active: 'Activo', suspended: 'Suspendido', rejected: 'Rechazado' };
+      var now = new Date();
       var clients = pr.filter(function (p) { return p.role === 'client'; });
       var trs = pr.filter(function (p) { return p.role === 'transporter'; });
+
+      // suscripción vigente / pendiente por usuario
+      var actSub = {}, pendSub = {};
+      su.forEach(function (s) {
+        if (s.status === 'active' && new Date(s.expires_at) > now) {
+          if (!actSub[s.user_id] || new Date(s.expires_at) > new Date(actSub[s.user_id].expires_at)) actSub[s.user_id] = s;
+        }
+        if (s.status === 'pending') pendSub[s.user_id] = s;
+      });
+      var planName = function (id) { return id === 'weekly' ? 'Semanal' : 'Mensual'; };
+      var monthIncome = su.filter(function (s) {
+        return s.status === 'active' && s.reviewed_at && new Date(s.reviewed_at).getMonth() === now.getMonth() && new Date(s.reviewed_at).getFullYear() === now.getFullYear();
+      }).reduce(function (a, s) { return a + Number(s.amount || 0); }, 0);
 
       var stats = [
         [clients.length, 'Clientes'], [trs.length, 'Transportistas'],
         [trs.filter(function (p) { return p.account_status === 'pending'; }).length, 'Transportistas por aprobar'],
         [su.filter(function (s) { return s.status === 'pending'; }).length, 'Pagos pendientes'],
-        [sv.length, 'Servicios'], [co.filter(function (c) { return c.status !== 'resolved'; }).length, 'Reclamos abiertos']
+        [Object.keys(actSub).length, 'Suscripciones vigentes'],
+        [money(monthIncome), 'Ingresos del mes'],
+        [sv.filter(function (s) { return s.status === 'accepted' || s.status === 'in_progress'; }).length, 'Servicios en curso'],
+        [sv.length, 'Servicios (total)'], [co.filter(function (c) { return c.status !== 'resolved'; }).length, 'Reclamos abiertos']
       ];
       $('#stats').innerHTML = stats.map(function (s) { return '<div class="stat"><b>' + s[0] + '</b><span>' + s[1] + '</span></div>'; }).join('');
 
       function userRow(p) {
-        var t = T.get(p.id), btns = '';
+        var t = T.get(p.id), btns = '', sbtns = '';
         var b = function (label, v, cls) { return '<button class="btn ' + (cls || '') + ' small" data-a="status" data-id="' + p.id + '" data-v="' + v + '">' + label + '</button>'; };
         if (p.account_status !== 'active') btns += b(p.account_status === 'pending' ? 'Aprobar' : 'Activar', 'active');
         if (p.account_status === 'pending') btns += b('Rechazar', 'rejected', 'danger');
         if (p.account_status === 'active') btns += b('Suspender', 'suspended', 'danger');
+        btns += '<button class="btn ghost small" data-a="edit" data-id="' + p.id + '" data-name="' + esc(p.full_name) + '" data-phone="' + esc(p.phone) + '">Editar</button>';
+        btns += waLink(p.phone);
+        var act = actSub[p.id], pend = pendSub[p.id];
+        var subTxt = act ? '<span class="ok">Suscripción vigente hasta ' + fdate(act.expires_at) + ' (' + planName(act.plan) + ')</span>'
+          : pend ? '<span class="warn">Pago en revisión: ' + planName(pend.plan) + ' · ' + money(pend.amount) + '</span>' : '<span class="muted">Sin suscripción</span>';
+        (PLANS[p.role] || []).forEach(function (pl) {
+          sbtns += '<button class="btn secondary small" data-a="grant" data-id="' + p.id + '" data-v="' + pl.id + '" data-n="' + esc(p.full_name) +
+            '" data-l="' + pl.label + '" data-p="' + pl.price + '">Activar ' + pl.label + ' ' + money(pl.price) + '</button>';
+        });
+        if (act) {
+          sbtns += '<button class="btn ghost small" data-a="adjust" data-id="' + p.id + '">± Días</button>' +
+            '<button class="btn danger small" data-a="revoke" data-id="' + p.id + '" data-n="' + esc(p.full_name) + '">Quitar</button>';
+        }
         return '<div class="admin-row"><div class="row"><div>' +
           (t && t.photo_path ? '<img class="avatar" alt="" src="' + esc(photoUrl(t.photo_path)) + '"><br>' : '') +
-          '<b>' + esc(p.full_name) + '</b><small>' + esc(p.email) + ' · Cel ' + esc(p.phone) + ' · DNI ' + esc(p.dni) + ' · ' + esc(p.age) + ' años</small>' +
-          (t ? '<small>Moto: ' + esc(t.motorcycle) + ' · ' + esc(t.motorcycle_color) + ' · Placa ' + esc(t.plate) + ' · Servicios: ' + esc(t.service_types.join(', ')) + '</small>' : '') +
-          '<small>Registrado ' + fdate(p.created_at) + '</small></div><span class="pill">' + SL[p.account_status] + '</span></div>' +
-          (btns ? '<div class="actions">' + btns + '</div>' : '') + '</div>';
+          '<b>' + esc(p.full_name) + '</b><small>' + esc(p.email) + ' · Cel ' + esc(p.phone) + ' · DNI ' + esc(p.dni) + ' · ' + esc(p.age) + ' años · ' + fdate(p.created_at) + '</small>' +
+          (t ? '<small>Moto: ' + esc(t.motorcycle) + ' · ' + esc(t.motorcycle_color) + ' · Placa ' + esc(t.plate) + ' · ' + esc((t.service_types || []).join(', ')) + '</small>' : '') +
+          '</div><span class="pill">' + (SL[p.account_status] || esc(p.account_status)) + '</span></div>' +
+          '<small>' + subTxt + '</small>' +
+          '<div class="actions">' + btns + '</div>' +
+          (sbtns ? '<div class="actions">' + sbtns + '</div>' : '') + '</div>';
       }
       var empty = '<div class="empty">Sin registros.</div>';
-      $('#adminClients').innerHTML = clients.length ? clients.map(userRow).join('') : empty;
-      $('#adminTransporters').innerHTML = trs.length ? trs.map(userRow).join('') : empty;
+      var rank = function (p) { return p.account_status === 'pending' || pendSub[p.id] ? 0 : 1; };
+      clients = clients.slice().sort(function (a, b) { return rank(a) - rank(b); });
+      trs = trs.slice().sort(function (a, b) { return rank(a) - rank(b); });
+      function renderUsers() {
+        var q = norm((($('#adminSearch') || {}).value || '').trim());
+        var ok = function (p) {
+          if (!q) return true;
+          var t = T.get(p.id);
+          return norm([p.full_name, p.email, p.phone, p.dni, t && t.plate, t && t.motorcycle].join(' ')).indexOf(q) >= 0;
+        };
+        var show = function (list, sel, cnt) {
+          var l = list.filter(ok);
+          $(sel).innerHTML = l.length ? l.map(userRow).join('') : empty;
+          var c = $(cnt); if (c) c.textContent = '(' + (q ? l.length + ' de ' : '') + list.length + ')';
+        };
+        show(clients, '#adminClients', '#cnt-clients');
+        show(trs, '#adminTransporters', '#cnt-trs');
+      }
+      view.renderUsers = renderUsers;
+      renderUsers();
 
       var SS = { pending: 'En revisión', active: 'Activa', rejected: 'Rechazada' };
       var ordered = su.slice().sort(function (a, b) { return (b.status === 'pending') - (a.status === 'pending'); });
       $('#adminSubscriptions').innerHTML = ordered.length ? ordered.map(function (s) {
         var u = U.get(s.user_id);
-        return '<div class="admin-row"><div class="row"><div><b>' + nm(s.user_id) + '</b> <small>(' + (u && u.role === 'client' ? 'cliente' : 'transportista') + ') · ' +
-          (s.plan === 'weekly' ? 'Semanal' : 'Mensual') + ' · ' + money(s.amount) + '</small><small>Solicitada ' + fdate(s.created_at) +
-          (s.status === 'active' ? ' · vence ' + fdate(s.expires_at) : '') + '</small></div><span class="pill">' + SS[s.status] + '</span></div>' +
-          (s.status === 'pending' ? '<div class="actions"><button class="btn small" data-a="sub" data-id="' + s.id + '" data-v="1">Aprobar pago</button>' +
-            '<button class="btn danger small" data-a="sub" data-id="' + s.id + '" data-v="0">Rechazar</button></div>' : '') + '</div>';
+        return '<div class="admin-row"><div class="row"><div><b>' + nm(s.user_id) + '</b> <small>(' + (u && u.role === 'client' ? 'cliente' : 'transportista') + ')</small>' +
+          '<small>Plan solicitado: <b>' + planName(s.plan) + '</b> · ' + money(s.amount) + ' · ' + s.days + ' días</small>' +
+          '<small>Solicitada ' + fdate(s.created_at) + (s.status === 'active' ? ' · vence ' + fdate(s.expires_at) : '') + '</small></div>' +
+          '<span class="pill">' + (SS[s.status] || esc(s.status)) + '</span></div>' +
+          (s.status === 'pending' ? '<div class="actions"><button class="btn small" data-a="sub" data-id="' + s.id + '" data-v="1">Aprobar ' + planName(s.plan) + ' ' + money(s.amount) + '</button>' +
+            '<button class="btn danger small" data-a="sub" data-id="' + s.id + '" data-v="0">Rechazar</button>' + waLink(u && u.phone) + '</div>' : '') + '</div>';
       }).join('') : empty;
 
-      $('#adminServices').innerHTML = sv.length ? sv.map(function (s) {
-        return '<div class="admin-row"><div class="row"><div><b>' + TYPE[s.service_type] + '</b> · ' + esc(s.origin) + ' → ' + esc(s.destination) +
-          '<small>Cliente: ' + nm(s.client_id) + ' · Transportista: ' + nm(s.transporter_id) + ' · ' + money(s.final_price || s.proposed_price) +
-          ' · ' + esc(s.payment_method) + (s.status === 'requested' ? ' · Ofertas: ' + (offCount[s.id] || 0) : '') + ' · ' + fdate(s.created_at) + '</small><small>ID: ' + s.id + '</small></div><span class="pill">' + ST[s.status] + '</span></div></div>';
-      }).join('') : empty;
+      var activeTr = trs.filter(function (p) { return p.account_status === 'active'; });
+      function renderServices() {
+        var fl = ($('#svFilter') || {}).value || '';
+        var list = fl ? sv.filter(function (s) { return s.status === fl; }) : sv;
+        $('#adminServices').innerHTML = list.length ? list.map(function (s) {
+          var acts = '';
+          var sb2 = function (label, v, cls) { return '<button class="btn ' + (cls || '') + ' small" data-a="svc" data-id="' + s.id + '" data-v="' + v + '">' + label + '</button>'; };
+          if (s.status === 'accepted') acts += sb2('En curso', 'in_progress', 'secondary');
+          if (s.status === 'accepted' || s.status === 'in_progress') acts += sb2('Completar', 'completed');
+          if (s.status === 'requested' || s.status === 'accepted' || s.status === 'in_progress') acts += sb2('Cancelar', 'cancelled', 'danger');
+          var assign = '';
+          if (s.status === 'requested' || s.status === 'accepted') {
+            var opts = activeTr.filter(function (p) { var t = T.get(p.id); return t && (t.service_types || []).indexOf(s.service_type) >= 0 && p.id !== s.transporter_id; })
+              .map(function (p) { return '<option value="' + p.id + '">' + esc(p.full_name) + (actSub[p.id] ? '' : ' (sin suscripción)') + '</option>'; }).join('');
+            assign = '<div class="actions"><select data-assign="' + s.id + '"><option value="">' + (s.status === 'accepted' ? 'Reasignar a…' : 'Asignar transportista…') + '</option>' + opts +
+              '</select><button class="btn small" data-a="assign" data-id="' + s.id + '">' + (s.status === 'accepted' ? 'Reasignar' : 'Asignar') + '</button></div>';
+          }
+          return '<div class="admin-row"><div class="row"><div><b>' + TYPE[s.service_type] + '</b> · ' + esc(s.origin) + ' → ' + esc(s.destination) +
+            '<small>Cliente: ' + nm(s.client_id) + ' · Transportista: ' + nm(s.transporter_id) + ' · ' + money(s.final_price || s.proposed_price) +
+            ' · ' + esc(s.payment_method) + (s.status === 'requested' ? ' · Ofertas: ' + (offCount[s.id] || 0) : '') + ' · ' + fdate(s.created_at) +
+            '</small><small>ID: ' + s.id + '</small></div><span class="pill">' + ST[s.status] + '</span></div>' +
+            (acts ? '<div class="actions">' + acts + '</div>' : '') + assign + '</div>';
+        }).join('') : empty;
+      }
+      view.renderServices = renderServices;
+      renderServices();
 
       var CL = { open: 'Abierto', in_review: 'En revisión', resolved: 'Resuelto' };
       $('#adminComplaints').innerHTML = co.length ? co.map(function (c) {
+        var cu = U.get(c.user_id);
         return '<div class="admin-row"><div class="row"><div><b>' + esc(c.reason) + '</b> · ' + nm(c.user_id) +
-          '<small>' + fdate(c.created_at) + (c.service_id ? ' · Servicio ' + c.service_id : '') + '</small></div><span class="pill">' + CL[c.status] + '</span></div><p>' +
+          '<small>' + fdate(c.created_at) + (c.service_id ? ' · Servicio ' + c.service_id : '') + '</small></div><span class="pill">' + (CL[c.status] || esc(c.status)) + '</span></div><p>' +
           esc(c.description) + '</p><div class="actions">' +
           (c.status === 'open' ? '<button class="btn ghost small" data-a="comp" data-id="' + c.id + '" data-v="in_review">En revisión</button>' : '') +
-          (c.status !== 'resolved' ? '<button class="btn small" data-a="comp" data-id="' + c.id + '" data-v="resolved">Marcar resuelto</button>' : '') + '</div></div>';
+          (c.status !== 'resolved' ? '<button class="btn small" data-a="comp" data-id="' + c.id + '" data-v="resolved">Marcar resuelto</button>' : '') +
+          waLink(cu && cu.phone) + '</div></div>';
       }).join('') : empty;
 
       var AL = { account_status: 'Cambio de estado de cuenta', subscription_approved: 'Pago aprobado',
-        subscription_rejected: 'Pago rechazado', complaint_status: 'Estado de reclamo' };
+        subscription_rejected: 'Pago rechazado', complaint_status: 'Estado de reclamo',
+        subscription_granted: 'Suscripción activada por admin', subscription_adjusted: 'Días de suscripción ajustados',
+        subscription_revoked: 'Suscripción retirada', service_status: 'Estado de servicio cambiado',
+        service_assigned: 'Servicio asignado', profile_edited: 'Datos de usuario editados' };
       var auEl = $('#adminAudit');
       if (auEl) auEl.innerHTML = au.length ? au.map(function (a) {
         var d = a.detail || {}, tgt = a.target_type === 'user' ? nm(a.target_id) : (d.user_id ? nm(d.user_id) : String(a.target_id || '').slice(0, 8));
-        var det = d.to ? (d.from ? esc(d.from) + ' → ' + esc(d.to) : esc(d.to)) : (d.plan ? esc(d.plan) + ' · ' + money(d.amount) : '');
+        var det = d.days != null ? (d.days > 0 ? '+' : '') + d.days + ' días' :
+          d.transporter_id ? 'a ' + nm(d.transporter_id) :
+          d.to ? (d.from ? esc(d.from) + ' → ' + esc(d.to) : esc(d.to)) : (d.plan ? esc(d.plan) + (d.amount != null ? ' · ' + money(d.amount) : '') : '');
         return '<div class="admin-row"><div class="row"><div><b>' + (AL[a.action] || esc(a.action)) + '</b><small>' + fdate(a.created_at) +
           ' · Admin: ' + nm(a.admin_id) + ' · Objetivo: ' + tgt + (det ? ' · ' + det : '') + '</small></div></div></div>';
       }).join('') : empty;
+
+      var up = $('#adminUpdated');
+      if (up) up.textContent = 'Actualizado ' + new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
     }
+
+    var sInp = $('#adminSearch'), fSel = $('#svFilter'), rBtn = $('#adminRefresh');
+    if (sInp) sInp.addEventListener('input', function () { if (view.renderUsers) view.renderUsers(); });
+    if (fSel) fSel.addEventListener('change', function () { if (view.renderServices) view.renderServices(); });
+    if (rBtn) rBtn.addEventListener('click', async function () {
+      rBtn.disabled = true;
+      try { await load(); notice('Datos actualizados.'); } catch (err) { notice(friendly(err), true); }
+      rBtn.disabled = false;
+    });
 
     $('main').addEventListener('click', async function (e) {
       var b = e.target.closest('button[data-a]');
       if (!b) return;
-      var a = b.dataset.a, id = b.dataset.id, v = b.dataset.v;
+      var a = b.dataset.a, id = b.dataset.id, v = b.dataset.v, extra;
       if (a === 'status' && (v === 'suspended' || v === 'rejected') && !confirm('¿Confirmas esta acción sobre la cuenta?')) return;
+      if (a === 'sub' && v === '0' && !confirm('¿Rechazar este pago?')) return;
+      if (a === 'grant' && !confirm('¿Activar el plan ' + b.dataset.l + ' (' + money(Number(b.dataset.p)) + ') a ' + b.dataset.n + '? Se registra como pago recibido y se suma a la suscripción vigente.')) return;
+      if (a === 'revoke' && !confirm('¿Quitar la suscripción vigente a ' + b.dataset.n + '?')) return;
+      if (a === 'svc' && v === 'cancelled' && !confirm('¿Cancelar este servicio?')) return;
+      if (a === 'adjust') {
+        var dd = prompt('¿Cuántos días sumar o restar a la suscripción? (ej. 7 o -3)');
+        if (dd === null) return;
+        extra = parseInt(dd, 10);
+        if (!extra) { notice('Escribe un número de días válido.', true); return; }
+      }
+      if (a === 'edit') {
+        var nn = prompt('Nombre completo:', b.dataset.name);
+        if (nn === null) return;
+        var ph = prompt('Celular:', b.dataset.phone);
+        if (ph === null) return;
+        extra = { n: nn, p: ph };
+      }
+      if (a === 'assign') {
+        var sel = document.querySelector('select[data-assign="' + id + '"]');
+        if (!sel || !sel.value) { notice('Primero elige un transportista.', true); return; }
+        if (!confirm('¿Asignar este servicio a ' + sel.options[sel.selectedIndex].text.replace(' (sin suscripción)', '') + '?')) return;
+        extra = sel.value;
+      }
       b.disabled = true;
       try {
-        if (a === 'status') {
-          await rpc('admin_set_account_status', { p_user: id, p_status: v });
-        } else if (a === 'sub') {
-          await rpc('admin_review_subscription', { p_id: id, p_approve: v === '1' });
-        } else if (a === 'comp') {
-          await rpc('admin_set_complaint_status', { p_id: id, p_status: v });
-        }
+        if (a === 'status') await rpc('admin_set_account_status', { p_user: id, p_status: v });
+        else if (a === 'sub') await rpc('admin_review_subscription', { p_id: id, p_approve: v === '1' });
+        else if (a === 'comp') await rpc('admin_set_complaint_status', { p_id: id, p_status: v });
+        else if (a === 'grant') await rpc('admin_activate_subscription', { p_user: id, p_plan: v });
+        else if (a === 'adjust') await rpc('admin_adjust_subscription', { p_user: id, p_days: extra });
+        else if (a === 'revoke') await rpc('admin_revoke_subscription', { p_user: id });
+        else if (a === 'svc') await rpc('admin_set_service_status', { p_id: id, p_status: v });
+        else if (a === 'assign') await rpc('admin_assign_service', { p_id: id, p_transporter: extra });
+        else if (a === 'edit') await rpc('admin_update_profile', { p_user: id, p_full_name: extra.n, p_phone: extra.p });
         notice('Cambio guardado.');
         await load();
       } catch (err) { notice(friendly(err), true); b.disabled = false; }
