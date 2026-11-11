@@ -407,6 +407,40 @@
         .admin-jump { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0 }
         .admin-jump a { text-decoration: none }
         .section-title { scroll-margin-top: 90px }
+    
+        /* ===== Panel admin compacto (móvil) ===== */
+        [hidden] { display: none !important }
+        body { padding-bottom: 76px }
+        .shell { margin: 14px auto 20px }
+        .section-title { margin: 14px 0 8px; font-size: 1.1rem }
+        .stats2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 14px 0 }
+        .stats2 .stat { text-align: left; font: inherit; color: inherit; cursor: pointer; padding: 12px }
+        .stats2 .stat b { font-size: 1.5rem }
+        section > input[type=search], section > select { margin: 12px 0 8px }
+        .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px }
+        .chip { flex: 0 0 auto; border: 1px solid #45627f; background: transparent; color: var(--text); border-radius: 99px; padding: 8px 14px; font: inherit; font-size: .9rem; cursor: pointer }
+        .chip.on { background: var(--blue); border-color: var(--blue); font-weight: 700 }
+        .arow { border: 1px solid var(--line); background: #0b1a2b; border-radius: 12px; margin: 8px 0 }
+        .arow.pad { padding: 12px }
+        .arow summary { list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px; min-height: 52px; cursor: pointer }
+        .arow summary::-webkit-details-marker { display: none }
+        .arow .top { display: flex; justify-content: space-between; align-items: center; gap: 10px }
+        .arow p { margin: 8px 0 }
+        .who { display: grid; min-width: 0 }
+        .who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+        .who small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted) }
+        .abody { padding: 4px 12px 12px; border-top: 1px solid var(--line) }
+        .abody small, .arow.pad > small { display: block; margin-top: 5px }
+        .actions.big .btn { flex: 1 1 120px; min-height: 46px }
+        .pill.st-pending { color: #ffc857; border-color: #8a6a1f }
+        .pill.st-active { color: #5be3a0; border-color: #1f7a52 }
+        .pill.st-suspended, .pill.st-rejected { color: var(--red); border-color: #8a2d3c }
+        .tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 8; display: flex; background: #07111ff2; border-top: 1px solid var(--line); backdrop-filter: blur(12px); padding-bottom: env(safe-area-inset-bottom) }
+        .tabbar button { position: relative; flex: 1; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11px; padding: 8px 2px; min-height: 56px; display: grid; justify-items: center; gap: 2px; cursor: pointer }
+        .tabbar button i { font-style: normal; font-size: 20px; line-height: 1 }
+        .tabbar button.on { color: var(--cyan); font-weight: 700 }
+        .tabbar .dot { position: absolute; top: 4px; left: 54%; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 99px; background: #e0364f; color: #fff; font-size: 11px; line-height: 18px; text-align: center }
+        @media (min-width: 761px) { .stats2 { grid-template-columns: repeat(3, minmax(0, 1fr)) } }
     </style>
 </head>
 
@@ -433,61 +467,69 @@
 
     <main class="shell">
 
-        <h1 id="welcome">Panel de administración</h1>
-
-        <p class="muted">
-            Solo usuarios autorizados como administradores en Supabase
-            deben tener acceso a este panel.
-        </p>
-
-        <div id="stats" class="grid three"></div>
-
-        <div class="admin-tools">
-            <input id="adminSearch" type="search" placeholder="Buscar cliente o transportista: nombre, correo, celular, DNI o placa">
-            <button id="adminRefresh" class="btn secondary small" type="button">Actualizar</button>
-            <small id="adminUpdated" class="muted"></small>
+        <div class="split">
+            <h1 id="welcome" style="margin:0;font-size:1.4rem">Panel de administración</h1>
+            <div style="display:flex;gap:8px;align-items:center">
+                <small id="adminUpdated" class="muted"></small>
+                <button id="adminRefresh" class="btn secondary small" type="button">⟳ Actualizar</button>
+            </div>
         </div>
-        <nav class="admin-jump">
-            <a class="btn ghost small" href="#sec-clientes">Clientes</a>
-            <a class="btn ghost small" href="#sec-transportistas">Transportistas</a>
-            <a class="btn ghost small" href="#sec-pagos">Pagos</a>
-            <a class="btn ghost small" href="#sec-servicios">Servicios</a>
-            <a class="btn ghost small" href="#sec-reclamos">Reclamos</a>
-            <a class="btn ghost small" href="#sec-auditoria">Auditoría</a>
-        </nav>
 
-        <h2 class="section-title" id="sec-clientes">Clientes</h2>
-        <div id="adminClients"></div>
+        <section data-tab="home">
+            <div id="stats" class="stats2"></div>
+            <div id="todo"></div>
+        </section>
 
-        <h2 class="section-title" id="sec-transportistas">Transportistas</h2>
-        <div id="adminTransporters"></div>
+        <section data-tab="users" hidden>
+            <input id="adminSearch" type="search" placeholder="Buscar nombre, correo, celular, DNI o placa">
+            <div class="chips">
+                <button type="button" class="chip on" data-chip="all">Todos</button>
+                <button type="button" class="chip" data-chip="client">Clientes</button>
+                <button type="button" class="chip" data-chip="transporter">Transportistas</button>
+                <button type="button" class="chip" data-chip="pending">Pendientes</button>
+            </div>
+            <div id="adminUsers"></div>
+        </section>
 
-        <h2 class="section-title" id="sec-pagos">Pagos y suscripciones</h2>
-        <div id="adminSubscriptions"></div>
+        <section data-tab="pay" hidden>
+            <h2 class="section-title">Pagos y suscripciones</h2>
+            <div id="adminSubscriptions"></div>
+            <p class="note">La aprobación de transportista y la activación de suscripción son procesos independientes.</p>
+        </section>
 
-        <h2 class="section-title" id="sec-servicios">Servicios</h2>
-        <select id="svFilter" style="max-width:260px;margin-bottom:8px">
-            <option value="">Todos los estados</option>
-            <option value="requested">Solicitados</option>
-            <option value="accepted">Aceptados</option>
-            <option value="in_progress">En curso</option>
-            <option value="completed">Finalizados</option>
-            <option value="cancelled">Cancelados</option>
-        </select>
-        <div id="adminServices"></div>
+        <section data-tab="svc" hidden>
+            <h2 class="section-title">Servicios</h2>
+            <select id="svFilter">
+                <option value="">Todos los estados</option>
+                <option value="requested">Solicitados</option>
+                <option value="accepted">Aceptados</option>
+                <option value="in_progress">En curso</option>
+                <option value="completed">Finalizados</option>
+                <option value="cancelled">Cancelados</option>
+            </select>
+            <div id="adminServices"></div>
+        </section>
 
-        <h2 class="section-title" id="sec-reclamos">Reclamos</h2>
-        <div id="adminComplaints"></div>
+        <section data-tab="comp" hidden>
+            <h2 class="section-title">Reclamos</h2>
+            <div id="adminComplaints"></div>
+        </section>
 
-        <h2 class="section-title" id="sec-auditoria">Registro de auditoría</h2>
-        <div id="adminAudit"></div>
-
-        <p class="note">
-            La aprobación de transportista y la activación de suscripción
-            son procesos independientes.
-        </p>
+        <section data-tab="log" hidden>
+            <h2 class="section-title">Registro de auditoría</h2>
+            <div id="adminAudit"></div>
+        </section>
 
     </main>
+
+    <nav class="tabbar">
+        <button type="button" class="on" data-go="home"><i>🏠</i><span>Inicio</span></button>
+        <button type="button" data-go="users"><i>👥</i><span>Usuarios</span><b class="dot" id="b-users" hidden></b></button>
+        <button type="button" data-go="pay"><i>💳</i><span>Pagos</span><b class="dot" id="b-pay" hidden></b></button>
+        <button type="button" data-go="svc"><i>🏍️</i><span>Servicios</span></button>
+        <button type="button" data-go="comp"><i>📣</i><span>Reclamos</span><b class="dot" id="b-comp" hidden></b></button>
+        <button type="button" data-go="log"><i>📋</i><span>Historial</span></button>
+    </nav>
 
     <footer class="footer">
         © 2026 LANZEC MOTO EXPRESS · Juliaca, Perú
