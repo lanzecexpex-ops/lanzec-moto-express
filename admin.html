@@ -401,6 +401,12 @@
                 flex: 1;
             }
         }
+    
+        .admin-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 18px 0 6px }
+        .admin-tools input, .admin-tools select { width: auto; flex: 1 1 220px }
+        .admin-jump { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0 }
+        .admin-jump a { text-decoration: none }
+        .section-title { scroll-margin-top: 90px }
     </style>
 </head>
 
@@ -436,22 +442,44 @@
 
         <div id="stats" class="grid three"></div>
 
-        <h2 class="section-title">Clientes</h2>
+        <div class="admin-tools">
+            <input id="adminSearch" type="search" placeholder="Buscar cliente o transportista: nombre, correo, celular, DNI o placa">
+            <button id="adminRefresh" class="btn secondary small" type="button">Actualizar</button>
+            <small id="adminUpdated" class="muted"></small>
+        </div>
+        <nav class="admin-jump">
+            <a class="btn ghost small" href="#sec-clientes">Clientes</a>
+            <a class="btn ghost small" href="#sec-transportistas">Transportistas</a>
+            <a class="btn ghost small" href="#sec-pagos">Pagos</a>
+            <a class="btn ghost small" href="#sec-servicios">Servicios</a>
+            <a class="btn ghost small" href="#sec-reclamos">Reclamos</a>
+            <a class="btn ghost small" href="#sec-auditoria">Auditoría</a>
+        </nav>
+
+        <h2 class="section-title" id="sec-clientes">Clientes</h2>
         <div id="adminClients"></div>
 
-        <h2 class="section-title">Transportistas</h2>
+        <h2 class="section-title" id="sec-transportistas">Transportistas</h2>
         <div id="adminTransporters"></div>
 
-        <h2 class="section-title">Pagos y suscripciones</h2>
+        <h2 class="section-title" id="sec-pagos">Pagos y suscripciones</h2>
         <div id="adminSubscriptions"></div>
 
-        <h2 class="section-title">Servicios</h2>
+        <h2 class="section-title" id="sec-servicios">Servicios</h2>
+        <select id="svFilter" style="max-width:260px;margin-bottom:8px">
+            <option value="">Todos los estados</option>
+            <option value="requested">Solicitados</option>
+            <option value="accepted">Aceptados</option>
+            <option value="in_progress">En curso</option>
+            <option value="completed">Finalizados</option>
+            <option value="cancelled">Cancelados</option>
+        </select>
         <div id="adminServices"></div>
 
-        <h2 class="section-title">Reclamos</h2>
+        <h2 class="section-title" id="sec-reclamos">Reclamos</h2>
         <div id="adminComplaints"></div>
 
-        <h2 class="section-title">Registro de auditoría</h2>
+        <h2 class="section-title" id="sec-auditoria">Registro de auditoría</h2>
         <div id="adminAudit"></div>
 
         <p class="note">
